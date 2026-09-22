@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rompecabezas: Ramo de Flores Amarillas</title>
+<style>
+  :root{
+    --bg:#f4ede1; --panel:#fffdf8; --ink:#4a3b28; --accent:#e0a92b;
+    --board-border:#c9a86a; --muted:#8a7a63;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#221c14; --panel:#2c251b; --ink:#f1e6d0; --accent:#f0c25a;
+      --board-border:#7a6540; --muted:#b0a186;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#221c14; --panel:#2c251b; --ink:#f1e6d0; --accent:#f0c25a;
+    --board-border:#7a6540; --muted:#b0a186;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  body{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);}
+  header{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 14px;
+    background:var(--panel);border-bottom:2px solid var(--board-border);position:sticky;top:env(safe-area-inset-top,0px);z-index:50;}
+  h1{font-size:1rem;margin:0;flex:1 1 auto;min-width:160px;}
+  .thumb{width:64px;height:48px;border-radius:6px;border:2px solid var(--board-border);object-fit:cover;flex-shrink:0;}
+  .stat{font-size:.8rem;color:var(--muted);background:var(--bg);padding:6px 10px;border-radius:8px;white-space:nowrap;}
+  button{font:inherit;font-size:.82rem;padding:7px 11px;border-radius:8px;border:1px solid var(--board-border);
+    background:var(--accent);color:#3a2d10;cursor:pointer;white-space:nowrap;}
+  button:active{transform:scale(0.97);}
+  #outer{overflow:auto;width:100%;-webkit-overflow-scrolling:touch;}
+  #stageWrap{transform-origin:top left;position:relative;}
+  #stage{position:relative;touch-action:none;background:var(--bg);}
+  #board{position:absolute;border:3px dashed var(--board-border);border-radius:4px;background:var(--panel);overflow:hidden;}
+  #guide{position:absolute;top:0;left:0;opacity:.18;pointer-events:none;image-rendering:auto;}
+  .cell{position:absolute;border:1px dotted rgba(160,140,100,.35);}
+  .piece{position:absolute;cursor:grab;touch-action:none;border-radius:3px;
+    box-shadow:0 3px 6px rgba(0,0,0,.35);border:1px solid rgba(60,40,10,.35);}
+  .piece.dragging{cursor:grabbing;box-shadow:0 10px 14px rgba(0,0,0,.45);}
+  .piece.placed{cursor:default;box-shadow:none;border-color:transparent;}
+  #winOverlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:100;padding:20px;}
+  #winOverlay.show{display:flex;}
+  #winCard{background:var(--panel);color:var(--ink);border-radius:14px;padding:28px;text-align:center;max-width:320px;}
+  #winCard h2{margin:0 0 8px;}
+  footer{text-align:center;font-size:.72rem;color:var(--muted);padding:10px;}
+</style>
+</head>
+<body>
+<header>
+  <img id="thumbImg" class="thumb" alt="Referencia">
+  <h1>🧩 Ramo de Flores Amarillas</h1>
+  <span class="stat" id="statPieces">0 / 0 piezas</span>
+  <span class="stat" id="statTime">00:00</span>
+  <button id="btnShuffle">🔀 Mezclar</button>
+  <button id="btnGuide">👁 Guía</button>
+</header>
+
+<div id="outer">
+  <div id="stageWrap">
+    <div id="stage"></div>
+  </div>
+</div>
+
+<div id="winOverlay">
+  <div id="winCard">
+    <h2>🎉 ¡Completado!</h2>
+    <p id="winTime"></p>
+    <p style="color:var(--muted);font-size:.9rem">¡Armaste el ramo de flores amarillas!</p>
+    <button id="btnAgain">Jugar de nuevo</button>
+  </div>
+</div>
+
+<footer>Arrastra cada pieza hasta su casilla en el tablero punteado. Se ajusta sola al acercarla.</footer>
+
+<script>
+(function(){
+  "use strict";
+  const IMG_W=800, IMG_H=600, COLS=8, ROWS=5;
+  const PW=IMG_W/COLS, PH=IMG_H/ROWS;
+  const BX=40, BY=40;
+  const STAGE_W=1180, STAGE_H=860;
+  const TOTAL=COLS*ROWS;
+
+  // ---------- Dibujar el ramo de flores amarillas ----------
+  function drawFlower(ctx,x,y,r,color,rot){
+    ctx.save(); ctx.translate(x,y); ctx.rotate(rot);
+    const petals=10;
+    for(let i=0;i<petals;i++){
+      ctx.save(); ctx.rotate((Math.PI*2/petals)*i);
+      ctx.fillStyle=color;
+      ctx.beginPath();
+      ctx.ellipse(0,-r*0.62,r*0.34,r*0.62,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.fillStyle='#8a5a1f';
+    ctx.beginPath(); ctx.arc(0,0,r*0.4,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#a86f2a';
+    for(let i=0;i<14;i++){
+      const a=Math.random()*Math.PI*2, rr=Math.random()*r*0.3;
+      ctx.beginPath(); ctx.arc(Math.cos(a)*rr,Math.sin(a)*rr,1.6,0,Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawBouquet(ctx){
+    const g=ctx.createLinearGradient(0,0,0,IMG_H);
+    g.addColorStop(0,'#fffdf5'); g.addColorStop(1,'#ffedbc');
+    ctx.fillStyle=g; ctx.fillRect(0,0,IMG_W,IMG_H);
+
+    const cx=IMG_W/2, baseY=IMG_H-40;
+    const n=11, stems=[];
+    for(let i=0;i<n;i++){
+      const angle=-95+(190/(n-1))*i;
+      const rad=angle*Math.PI/180;
+      const len=225+Math.random()*35;
+      const fx=cx+Math.sin(rad)*len*0.9;
+      const fy=250-Math.cos(rad)*len*0.5+(Math.random()*16-8);
+      stems.push({fx,fy,angle});
+    }
+    ctx.lineCap='round';
+    stems.forEach(p=>{
+      ctx.strokeStyle='#5b8c3e'; ctx.lineWidth=7;
+      ctx.beginPath();
+      ctx.moveTo(cx,baseY-40);
+      ctx.quadraticCurveTo(cx+(p.fx-cx)*0.4,(baseY-40+p.fy)/2,p.fx,p.fy+30);
+      ctx.stroke();
+    });
+    stems.forEach((p,i)=>{
+      if(i%2===0){
+        const mx=(cx+p.fx)/2+(Math.random()*20-10);
+        const my=(baseY-40+p.fy)/2+20;
+        ctx.save(); ctx.translate(mx,my); ctx.rotate(p.angle*Math.PI/180*0.6);
+        ctx.fillStyle='#6fa050';
+        ctx.beginPath(); ctx.ellipse(0,0,26,11,0,0,Math.PI*2); ctx.fill();
+        ctx.restore();
+      }
+    });
+    ctx.fillStyle='#e3c091';
+    ctx.beginPath();
+    ctx.moveTo(cx-115,baseY+30); ctx.lineTo(cx+115,baseY+30);
+    ctx.lineTo(cx+42,baseY+150); ctx.lineTo(cx-42,baseY+150);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='#c8a06a'; ctx.lineWidth=2;
+    for(let i=-1;i<=1;i++){
+      ctx.beginPath(); ctx.moveTo(cx+i*62,baseY+30); ctx.lineTo(cx+i*22,baseY+150); ctx.stroke();
+    }
+    ctx.fillStyle='#d9534f';
+    ctx.fillRect(cx-118,baseY+55,236,18);
+    ctx.beginPath(); ctx.moveTo(cx-14,baseY+64); ctx.lineTo(cx-46,baseY+40); ctx.lineTo(cx-46,baseY+88); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx+14,baseY+64); ctx.lineTo(cx+46,baseY+40); ctx.lineTo(cx+46,baseY+88); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx,baseY+64,14,10,0,0,Math.PI*2); ctx.fill();
+
+    const colors=['#FFD93D','#FFC93C','#FFE066'];
+    stems.forEach((p,i)=>drawFlower(ctx,p.fx,p.fy,34+Math.random()*8,colors[i%3],i*0.4));
+
+    for(let i=0;i<40;i++){
+      const a=Math.random()*Math.PI*2, r=Math.random()*260+30;
+      const x=cx+Math.cos(a)*r*0.9, y=210+Math.sin(a)*r*0.5;
+      if(y<255){
+        ctx.fillStyle='rgba(255,255,255,0.85)';
+        ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill();
+      }
+    }
+  }
+
+  const src=document.createElement('canvas');
+  src.width=IMG_W; src.height=IMG_H;
+  drawBouquet(src.getContext('2d'));
+  const dataUrl=src.toDataURL('image/png');
+  document.getElementById('thumbImg').src=dataUrl;
+
+  // ---------- Tablero ----------
+  const stage=document.getElementById('stage');
+  stage.style.width=STAGE_W+'px';
+  stage.style.height=STAGE_H+'px';
+
+  const board=document.createElement('div');
+  board.id='board';
+  board.style.left=(BX-3)+'px'; board.style.top=(BY-3)+'px';
+  board.style.width=IMG_W+'px'; board.style.height=IMG_H+'px';
+  stage.appendChild(board);
+
+  const guide=document.createElement('img');
+  guide.id='guide'; guide.src=dataUrl;
+  guide.style.width=IMG_W+'px'; guide.style.height=IMG_H+'px';
+  board.appendChild(guide);
+
+  // celdas guia (rejilla) dentro del tablero
+  for(let r=0;r<ROWS;r++){
+    for(let c=0;c<COLS;c++){
+      const cell=document.createElement('div');
+      cell.className='cell';
+      cell.style.left=(c*PW)+'px'; cell.style.top=(r*PH)+'px';
+      cell.style.width=PW+'px'; cell.style.height=PH+'px';
+      board.appendChild(cell);
+    }
+  }
+
+  let placedCount=0, zTop=1, startTime=null, timerInt=null, guideVisible=true;
+
+  function updateStatus(){
+    document.getElementById('statPieces').textContent=placedCount+' / '+TOTAL+' piezas';
+  }
+  function fmt(s){
+    const m=Math.floor(s/60), sec=s%60;
+    return String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0');
+  }
+  function startTimer(){
+    if(timerInt) return;
+    startTime=Date.now();
+    timerInt=setInterval(()=>{
+      document.getElementById('statTime').textContent=fmt(Math.floor((Date.now()-startTime)/1000));
+    },500);
+  }
+  function stopTimer(){ clearInterval(timerInt); timerInt=null; }
+
+  function onComplete(){
+    stopTimer();
+    document.getElementById('winTime').textContent='Tiempo: '+document.getElementById('statTime').textContent;
+    document.getElementById('winOverlay').classList.add('show');
+  }
+
+  function randomScatter(el,w,h){
+    const x=10+Math.random()*(STAGE_W-w-20);
+    const y=10+Math.random()*(STAGE_H-h-20);
+    el.style.left=x+'px'; el.style.top=y+'px';
+  }
+
+  const allPieces=[];
+
+  function addDrag(el){
+    let dragging=false, offX=0, offY=0;
+    el.addEventListener('pointerdown',e=>{
+      if(el.classList.contains('placed')) return;
+      startTimer();
+      el.setPointerCapture(e.pointerId);
+      dragging=true; el.classList.add('dragging'); el.style.zIndex=++zTop;
+      const rect=stage.getBoundingClientRect();
+      const sx=STAGE_W/rect.width, sy=STAGE_H/rect.height;
+      const px=(e.clientX-rect.left)*sx, py=(e.clientY-rect.top)*sy;
+      offX=px-parseFloat(el.style.left); offY=py-parseFloat(el.style.top);
+      e.preventDefault();
+    });
+    el.addEventListener('pointermove',e=>{
+      if(!dragging) return;
+      const rect=stage.getBoundingClientRect();
+      const sx=STAGE_W/rect.width, sy=STAGE_H/rect.height;
+      const px=(e.clientX-rect.left)*sx, py=(e.clientY-rect.top)*sy;
+      el.style.left=(px-offX)+'px'; el.style.top=(py-offY)+'px';
+    });
+    el.addEventListener('pointerup',()=>{
+      if(!dragging) return;
+      dragging=false; el.classList.remove('dragging');
+      const tx=parseFloat(el.dataset.tx), ty=parseFloat(el.dataset.ty);
+      const cx=parseFloat(el.style.left), cy=parseFloat(el.style.top);
+      if(Math.hypot(tx-cx,ty-cy)<16){
+        el.style.left=tx+'px'; el.style.top=ty+'px';
+        el.classList.add('placed');
+        placedCount++; updateStatus();
+        if(placedCount===TOTAL) onComplete();
+      }
+    });
+  }
+
+  function buildPieces(){
+    for(let r=0;r<ROWS;r++){
+      for(let c=0;c<COLS;c++){
+        const canvas=document.createElement('canvas');
+        canvas.width=PW; canvas.height=PH;
+        canvas.className='piece';
+        canvas.style.width=PW+'px'; canvas.style.height=PH+'px';
+        const pctx=canvas.getContext('2d');
+        pctx.drawImage(src, c*PW, r*PH, PW, PH, 0, 0, PW, PH);
+        randomScatter(canvas,PW,PH);
+        canvas.dataset.tx=(BX+c*PW);
+        canvas.dataset.ty=(BY+r*PH);
+        stage.appendChild(canvas);
+        addDrag(canvas);
+        allPieces.push(canvas);
+      }
+    }
+    updateStatus();
+  }
+  buildPieces();
+
+  function fitScale(){
+    const avail=window.innerWidth-8;
+    const scale=Math.min(1, avail/STAGE_W);
+    document.getElementById('stageWrap').style.transform='scale('+scale+')';
+    document.getElementById('stageWrap').style.width=STAGE_W+'px';
+    document.getElementById('stageWrap').style.height=STAGE_H+'px';
+    document.getElementById('outer').style.height=Math.min(window.innerHeight*0.78, STAGE_H*scale)+'px';
+  }
+  fitScale();
+  window.addEventListener('resize',fitScale);
+
+  document.getElementById('btnShuffle').addEventListener('click',()=>{
+    allPieces.forEach(el=>{
+      if(!el.classList.contains('placed')){
+        randomScatter(el,PW,PH);
+      }
+    });
+  });
+  document.getElementById('btnGuide').addEventListener('click',()=>{
+    guideVisible=!guideVisible;
+    guide.style.display=guideVisible?'block':'none';
+  });
+  document.getElementById('btnAgain').addEventListener('click',()=>location.reload());
+})();
+</script>
+</body>
+</html>
